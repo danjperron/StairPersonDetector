@@ -19,7 +19,7 @@
 #include "hardware/i2c.h"
 #include <time.h>
 
-//  UDP SEND TO HOST IP/POR
+//  UDP SEND TO HOST IP/PORT
 
 #define  SEND_TO_IP  "10.11.12.104"
 #define  SEND_TO_PORT 6001
@@ -28,7 +28,7 @@
 // threshold  in milli G (gravity)
 #define threshold 0.0
 
-// FFT stuff  1000samples/sec take 512 data points
+// FFT stuff  500samples/sec take 512 data points
 
 #define FSAMP 500
 #define NSAMP 512
@@ -64,7 +64,7 @@ void SendUDP(char * IP , int port, void * data, int data_size)
 ///////// MPU6050 FUNCTION  & I2C
 // By default these devices  are on bus address 0x68
 
-#define FIFO_ENABLE
+
 
 static int addr = 0x68;
 
