@@ -7,7 +7,7 @@ This is a proof of concept <br>
  I create a code using kiss FFT from https://github.com/AlexFWulff/awulff-pico-playground <br>
  The MPU6050 funstions  are base on the Pico-SDK. I don't use the fifo since it is only the accelerometer <br>
  I'm doing an 512 points  FFT on 500 samples/sec by interleave of 256 samples. This way I do have faster response.<br>
- <br>In conslusion.<br>
+ <br>In conclusion.<br>
   Walking around the stair trigger the mpu6050 so it is hard to find a good threshold to discriminate.
   
 - Second trial.  using  UL53LDK optical sensor  to follow<br>...<br>
