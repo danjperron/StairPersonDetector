@@ -19,7 +19,7 @@ This is a proof of concept <br>
   from the folder mpu6050_udp<br>
   mkdir build<br>
   cd build<br>
-  cmake -DPICO_3BOARD=pico_w -DWIFI_SSID="your essid" -DWIFI_PASSWORD="your password" ..
+  cmake -DPICO_3BOARD=pico_w -DWIFI_SSID="your essid" -DWIFI_PASSWORD="your password" ..<br>
   make<br>
   copy over the file mpu6050_udp.uf2 to the pico in flash mode<br>
   or use the SWD with openocd on a raspberry Pi<br>
