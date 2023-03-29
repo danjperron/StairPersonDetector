@@ -2,6 +2,9 @@
 <img src="pico_mpu6050.jpg" height=320><img src="mpu6050FFT.jpg" height=320><br>
 Using a Pico  to detect if somebody  goes up or down the stair<br>
 This is a proof of concept <br>
+
+Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://youtu.be/534miBv5ut0</a><br>
+
 - First trial<br>
  Use A MPU6050 to detect vibration on the stair.<br>
  I create the code using kiss FFT from https://github.com/AlexFWulff/awulff-pico-playground <br>
