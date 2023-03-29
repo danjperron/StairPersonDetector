@@ -17,7 +17,8 @@ FSAMP = 500
 #SAMP  number of sample taken by the FFT
 SAMP = 512
 
-
+#minimum threshold to modify the chart (0.0 = disable)
+minThreshold = 0.0
 
 UDP_PORT=6001
 ServerSocket = socket.socket(family=socket.AF_INET, type = socket.SOCK_DGRAM)
@@ -61,7 +62,7 @@ def GetFFT():
        lock.acquire()
        maxPeak= numbers_th[0]
        numbers_t = 0.001 * np.array(numbers_th) # from milli g to g
-       if numbers_t[maxPeak] > 0.8:
+       if numbers_t[maxPeak] > minThreshold :
             Tcount+=1
        lock.release()
    print("Thread close")
