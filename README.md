@@ -13,7 +13,9 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
  <br>In conclusion.<br>
   Walking around the stair trigger the mpu6050 so it is hard to find a good threshold to discriminate.
   
-- Second trial.  using  UL53LDK optical sensor  to follow<br>...<br>
+- Second and final trial<br>
+  This version doesn't use the mpu6050.
+  folder pico_escalier.   This is the curren version using the VL53L0 sensor to turn Light ON/OFF via MQTT<br>
 
 - File Description<br>
   mpu6050_udp folder.  code source to transfer FFT result from mpu6050 via udp packet<br>
