@@ -14,13 +14,14 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   Walking around the stair trigger the mpu6050 so it is hard to find a good threshold to discriminate.
   
 - Second and final trial<br>
-  This version doesn't use the mpu6050.
+  This version doesn't use the mpu6050.<br>
+  It uses an I.R. distance indicator check https://github.com/danjperron/VL53L0X_pico<br>
   folder pico_escalier.   This is the curren version using the VL53L0 sensor to turn Light ON/OFF via MQTT<br>
 
 - File Description<br>
   mpu6050_udp folder.  code source to transfer FFT result from mpu6050 via udp packet<br>
  
-  How to compile<br>
+- How to compile<br>
   from the folder mpu6050_udp<br>
   mkdir build<br>
   cd build<br>
@@ -41,8 +42,6 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   The python library numpy and matplotlib need to be installed.<br>
   N.B. FSAMP and NSAMP in mpuPlot.py. should be the same as the mpu6050_udp.c<br>
   <br>
-- Thing to do<br>
-  Add mqtt into pico code to control Martin & Jerry switch . 
   
 B.T.W. I added a working code "test_mqtt" using the SDK to handle the MQTT.<br>
 This is just an example on how to handle MQTT<br>
