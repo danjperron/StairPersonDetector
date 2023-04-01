@@ -104,8 +104,6 @@ static void mpu6050_reset() {
     uint8_t tbuf[] = {0x6B, 0x00};
     i2c_write_blocking(i2c_default, addr, tbuf, 2, false);
 
-    sleep_ms(1000);
-    return;
     // Two byte reset. First byte register, second byte data
     // There are a load more options to set up the device in different ways that could be added here
     //Sets sample rate to 8000/1+15 = 500Hz
