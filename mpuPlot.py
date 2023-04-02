@@ -61,7 +61,7 @@ def GetFFT():
        print("Tcount",Tcount," Freq:",freq," value:",numbers_th[nidx])
        lock.acquire()
        maxPeak= numbers_th[0]
-       numbers_t = 0.001 * np.array(numbers_th) # from milli g to g
+       numbers_t = (0.001/(SAMP /2)) * np.array(numbers_th) # from milli g to g
        if numbers_t[maxPeak] > minThreshold :
             Tcount+=1
        lock.release()
