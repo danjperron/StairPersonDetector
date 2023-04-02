@@ -1,3 +1,4 @@
+
 /**
  * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
  *
@@ -21,7 +22,7 @@
 
 //  UDP SEND TO HOST IP/POR
 #define ENABLE_UDP
-#undef ENABLE_UDP
+//#undef ENABLE_UDP
 #define  SEND_TO_IP  "10.11.12.104"
 #define  SEND_TO_PORT 6001
 
@@ -40,18 +41,25 @@
 #define TOPIC_ESCALIER_THRESHOLD "cmnd/escalier/threshold"
 #define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
 #define TOPIC_ESCALIER_ENABLE "cmnd/escalier/enable"
+#define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
 
 
-#define LIGHT_WAIT_DELAY  120
+#define LIGHT_WAIT_DELAY  30
 
 // threshold  in milli G (gravity)
-float  mpuThreshold=1500;
+float  mpuThreshold=22.0;
 int8_t lightStatus=0;
 int8_t mpuEnable=1;
 absolute_time_t startOnTime=0;  //  timestamp for ligt on delay
 int8_t weSetLightOn=0;
 int lightDelay = LIGHT_WAIT_DELAY;
 // FFT stuff  500samples/sec take 512 data points
+
+// my sensor is at 45 degree so  I use YZ vector
+// choice  sqrt(x*x + y*y + z*z)  USE_XYZ_VECTOR
+// or    .707 Y  - .707 Z 
+#define USE_XYZ_VECTOR
+#undef USE_XYZ_VECTOR
 
 #define FSAMP 500
 #define NSAMP 512
@@ -279,9 +287,9 @@ static void mpu6050_reset() {
     //Disable gyro self tests, scale of 500 degrees/s
     I2C_WByte(MPU6050_RA_GYRO_CONFIG, 0b00001000);
 //    //Disable accel self tests, scale of +-2g, no DHPF
-//    I2C_WByte(MPU6050_RA_ACCEL_CONFIG, 0x0);
+    I2C_WByte(MPU6050_RA_ACCEL_CONFIG, 0x0);
     // set +/- 4g
-    I2C_WByte(MPU6050_RA_ACCEL_CONFIG, 0x08);
+    // I2C_WByte(MPU6050_RA_ACCEL_CONFIG, 0x08);
 
 
     //Sets clock source to gyro reference w/ PLL
@@ -342,7 +350,10 @@ void Do_FFT()
 	          max_idx = i;
               }
            }
-            sprintf(buffer," Freq: %.1f   G:%.03f\n\0", freqs[max_idx],max_power);
+           // normalize max_power
+	        max_power /= (NSAMP/2);
+
+            sprintf(buffer," Freq: %.1f   mG:%.03f\n\0", freqs[max_idx],max_power);
             printf(buffer);
 #ifdef ENABLE_UDP
           if(max_power > mpuThreshold)
@@ -387,7 +398,7 @@ int main() {
     stdio_init_all();
 
     // convert  mpu6050 digital value to milli g  (gravity)
-    float gFactor = 4000.0 / 32767.0;
+    float gFactor = 2000.0 / 32767.0;
 
     int first=1;  // first record not done yet
     int loop=0;
@@ -482,7 +493,14 @@ int main() {
           g[0] = (float) acceleration[0];
           g[1] = (float) acceleration[1];
           g[2] = (float) acceleration[2];
+
+#ifdef USE_XYZ_VECTOR
           g[3] = sqrt(g[0]*g[0]+ g[1]*g[1] + g[2]*g[2]) * gFactor;
+#else
+          // my sensor is  45 degree  the horizontal is on x axis
+          g[3] =  0.707 * ( g[1] - g[2]);
+#endif
+
           // alternate data record  for the thread FFT calculation
           //  calculate FFT on one and store on the other
           //   g[3]= sintable[recordIdx];   pi test purpose
@@ -499,6 +517,8 @@ int main() {
           // if no  then unblock
           if(first==0)
                 multicore_fifo_pop_blocking();
+//          printf("Gx:%5.0f Gy:%5.0f  Gz:%5.0f Gt:%5.0f\n",g[0] * gFactor, g[1], g[2],
+//                  gFactor * 0.7 * (g[1]-g[2]));
           if(current_in == 1)
             {
              // copy second half to next fft_in1
