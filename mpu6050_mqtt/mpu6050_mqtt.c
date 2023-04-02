@@ -387,7 +387,7 @@ int main() {
     stdio_init_all();
 
     // convert  mpu6050 digital value to milli g  (gravity)
-    float gFactor = 2000.0 / 32767.0;
+    float gFactor = 4000.0 / 32767.0;
 
     int first=1;  // first record not done yet
     int loop=0;
