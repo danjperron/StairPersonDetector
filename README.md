@@ -18,17 +18,17 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   It uses an I.R. distance indicator check https://github.com/danjperron/VL53L0X_pico<br>
   folder pico_escalier.   This is the curren version using the VL53L0 sensor to turn Light ON/OFF via MQTT<br>
   
-- Third and last trial !  Return back to mpu6050 and MQTT
-  Fix a bug in sampling rate and since this is only for the night walking around the stair is not an issue.
+- Third and last trial !  Return back to mpu6050 and MQTT<br>
+  Fix a bug in sampling rate and since this is only for the night walking around the stair is not an issue.<br>
+  <br>
+  folder is (mpu6050_mqtt).<br>
   
-  folder is (mpu6050_mqtt).
-    This is the mqtt command.
+  This is the mqtt command.<br>
     
-    /cmnd/escalier/delay   -> delay to let the light ON.
-    /cmnd/escalier/threshold -> minimum FFT peak detection to trigger the light.
-    /cmnd/escalier/enable.   ->   0= no light trigger.  1= ligh trigger if threshold is reached.
-    N.B. You need to add the mqtt_library check the B.T.W. at the end.
-
+    /cmnd/escalier/delay   -> delay to let the light ON.<br>
+    /cmnd/escalier/threshold -> minimum FFT peak detection to trigger the light.<br>
+    /cmnd/escalier/enable.   ->   0= no light  1= trigger light if threshold is reached.<br>
+    N.B. You need to add the mqtt_library check the B.T.W. at the end.<br><br>
 - File Description<br>
   mpu6050_udp folder.  code source to transfer FFT result from mpu6050 via udp packet<br>
  
