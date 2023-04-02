@@ -36,7 +36,6 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
     /cmnd/escalier/delay   -> delay to let the light ON.<br>
     /cmnd/escalier/threshold -> minimum FFT peak detection to trigger the light.<br>
     /cmnd/escalier/enable.   ->   0= no light  1= trigger light if threshold is reached.<br>
-    N.B. You need to add the mqtt_library check the B.T.W. at the end.<br><br>
 
 - How to compile<br>
   from the folder mpu6050_mqtt<br>
