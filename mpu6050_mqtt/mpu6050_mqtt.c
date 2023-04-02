@@ -40,7 +40,6 @@
 #define TOPIC_ESCALIER_THRESHOLD "cmnd/escalier/threshold"
 #define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
 #define TOPIC_ESCALIER_ENABLE "cmnd/escalier/enable"
-#define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
 
 
 #define LIGHT_WAIT_DELAY  120
