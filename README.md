@@ -48,7 +48,7 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   or use the SWD with openocd on a raspberry Pi<br>
   openocd -f interface/raspberrypi-swd.cfg -f target/rp2040.cfg -c "program mpu6050_mqtt.elf verify reset exit"<br>
   <br>
-  Don't forget to change the define. in the main file mpu6050_udp.c<br>
+  Don't forget to change the define. in the main file mpu6050_mqtt.c<br>
   <br>#define  SEND_TO_IP  "10.11.12.104"  this should be the IP of the computer which run mpuPlot.py<br>
   #define  SEND_TO_PORT 6001  this is the port<br>
   #define  threshold  0.0   Minimum threshold to send data via udp  (value is in milli g) 1g = 9.8m/s*s<br>
