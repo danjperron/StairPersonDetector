@@ -1,5 +1,6 @@
 # StairPersonDetector
-<img src="pico_mpu6050.jpg" height=320><img src="mpu6050FFT.jpg" height=320><br>
+<img src="pico_mpu6050.jpg" height=320><img src="mpu6050FFT.jpg" height=320>
+<img src="picoWmpu6050_onstair.jpg"><br>
 Using a Pico  to detect if somebody  goes up or down the stair<br>
 This is a proof of concept <br>
 
