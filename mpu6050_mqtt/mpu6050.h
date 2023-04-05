@@ -186,3 +186,12 @@ const unsigned char MPU6050RegTable[]= {
     MPU6050_RA_FIFO_R_W,       // LDByteWriteI2C(MPU6050_ADDRESS, MPU6050_RA_FIFO_R_W, 0x00);
     0xff
 };
+
+/**
+ * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+
+

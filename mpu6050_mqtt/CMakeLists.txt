@@ -11,6 +11,9 @@ pico_sdk_init()
 
 target_sources(${PROJECT} PRIVATE
         ${PROJECT}.c
+        mpu6050_i2c.c
+        settings.c
+        mpu6050_ntp.c
         )
 target_compile_definitions(mpu6050_mqtt PRIVATE
             WIFI_SSID=\"${WIFI_SSID}\"
@@ -27,6 +30,7 @@ target_link_libraries(${PROJECT}
      kiss_fft
      pico_multicore
      pico_lwip_mqtt
+     hardware_flash
 )
 
 pico_add_extra_outputs(${PROJECT})
