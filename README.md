@@ -29,15 +29,26 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   
 - Third and last trial !  Return back to mpu6050 and MQTT<br>
   Fix a bug in sampling rate and since this is only for the night walking around the stair is not an issue.<br>
-  <br>
+  Two Threshold.  The FFT peak threshold and the peak threshold  before FFT<br>
   Folder mpu6050_mqtt<br>
   
+  The output data unit are now 1g = 10000.  This was the best way to incorporate the +/- 2G input 16bits for the UDP.
+  I Also add the NTP request for the date
   This is the mqtt command.<br>
     
-    /cmnd/escalier/delay   -> delay to let the light ON.<br>
-    /cmnd/escalier/threshold -> minimum FFT peak detection to trigger the light.<br>
-    /cmnd/escalier/enable.   ->   0= no light  1= trigger light if threshold is reached.<br>
-
+    <blockquote>/cmnd/escalier/delay -> delay to let the light ON.<br>
+    /cmnd/escalier/threshold     -> minimum FFT peak detection to trigger the light.<br>
+    /cmnd/escalier/peakthreshold -> minimum FFT peak detection to trigger the light.<br>
+    /cmnd/escalier/info.         -> request to output status.<br>
+    /cmnd/escalier/enable.       ->   0= no light  1= trigger light if threshold is reached.<br>
+    /cmnd/escalier/calibrate     ->   calibrate accelerometer offset for 5 sec.<br>
+    /cmnd/escalier/udpthreshold  -> minimum FFT peak detection to trigger the udp transfer.<br>
+    /cmnd/escalier/udphostip.    -> specification of the IP address to post the UDP packet.<br></blockquote>
+    
+  ex: using mosquitto to set udp host IP<br>
+       mosquitto_pub -h "your borker IP" -t "cmnd/escalier/udphostip" -m "192.168.0.1".   or -m "" to disable udp.
+  
+       
 - How to compile<br>
   from the folder mpu6050_mqtt<br>
   mkdir build<br>
@@ -49,11 +60,9 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   openocd -f interface/raspberrypi-swd.cfg -f target/rp2040.cfg -c "program mpu6050_mqtt.elf verify reset exit"<br>
   <br>
   Don't forget to change the define. in the main file mpu6050_mqtt.c<br>
-  <br>#define  SEND_TO_IP  "10.11.12.104"  this should be the IP of the computer which run mpuPlot.py<br>
-  #define  SEND_TO_PORT 6001  this is the port<br>
-  #define  threshold  0.0   Minimum threshold to send data via udp  (value is in milli g) 1g = 9.8m/s*s<br>
-  #define FSAMP 500         Sample frequency of the mpu6050. The mpu6050 divider will use this (8000/FSAMP) -1<br>
-  #define NSAMP 512         Number of sample points for FFT<br><br>       
+  <br>
+  #define FSAMP 250         Sample frequency of the mpu6050. The mpu6050 divider will use this (8000/FSAMP) -1<br>
+  #define NSAMP 256         Number of sample points for FFT<br><br>       
   The CMakeLists.txt file in pico-sdk/src/rp2_common/pico_lwip needs to be modified by adding after line   # MQTT client files<br>
     <blockquote>add_library(pico_lwip_mqtt INTERFACE)
     target_sources(pico_lwip_mqtt INTERFACE<br>
