@@ -18,63 +18,285 @@
 #include "mpu6050.h"
 #include "kiss_fftr.h"
 #include "hardware/i2c.h"
+#include "hardware/rtc.h"
 #include <time.h>
+#include "lwip/dns.h"
+#include "pico/util/datetime.h"
 
-//  UDP SEND TO HOST IP/POR
-#define ENABLE_UDP
-//#undef ENABLE_UDP
-#define  SEND_TO_IP  "10.11.12.104"
+
+char udpHostIP[256];
+
+// UDP PORT
 #define  SEND_TO_PORT 6001
 
 
 // MQTT
-#define ENABLE_MQTT
-//#undef ENABLE_MQTT
 
 #define MQTT_HOST_IP "10.11.12.192"
 #define MQTT_HOST_PORT 1883
+#define MQTT_CLIENT_NAME "escalier"
+
+
+
 
 #define TOPIC_ESCALIER_BAS   "stat/escalierBas/POWER"
-#define TOPIC_ESCALIER_HAUT  "stat/escalierHaut/POWER"
-#define TOPIC_CMND_ESCALIER  "cmnd/escalier/#"
-#define TOPIC_ESCALIER_POWER  "cmnd/escalier/POWER"
-#define TOPIC_ESCALIER_THRESHOLD "cmnd/escalier/threshold"
-#define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
-#define TOPIC_ESCALIER_ENABLE "cmnd/escalier/enable"
-#define TOPIC_ESCALIER_DELAY "cmnd/escalier/delay"
+// we only need the stat of one tasmota switch
+//#define TOPIC_ESCALIER_HAUT  "stat/escalierHaut/POWER" 
+
+#define TOPIC_STAT "stat/"MQTT_CLIENT_NAME
+#define TOPIC_CMND "cmnd/"MQTT_CLIENT_NAME
+
+#define TOPIC_ESCALIER_STATUS        TOPIC_STAT"/info"
+#define TOPIC_ESCALIER_GOT_TRIGGER   TOPIC_STAT"/gotTrigger"
+#define TOPIC_CMND_ESCALIER          TOPIC_CMND"/#"
+#define TOPIC_ESCALIER_POWER         TOPIC_CMND"/POWER"
+#define TOPIC_ESCALIER_THRESHOLD     TOPIC_CMND"/threshold"
+#define TOPIC_ESCALIER_UDPTHRESHOLD  TOPIC_CMND"/udpthreshold"
+#define TOPIC_ESCALIER_PEAKTHRESHOLD TOPIC_CMND"/peakthreshold"
+#define TOPIC_ESCALIER_ENABLE        TOPIC_CMND"/enable"
+#define TOPIC_ESCALIER_DELAY         TOPIC_CMND"/delay"
+#define TOPIC_ESCALIER_INFO          TOPIC_CMND"/info"
+#define TOPIC_ESCALIER_UDP_HOST_IP   TOPIC_CMND"/udphostip"
+#define TOPIC_ESCALIER_CALIBRATE     TOPIC_CMND"/calibrate"
 
 
 #define LIGHT_WAIT_DELAY  30
 
-// threshold  in milli G (gravity)
-float  mpuThreshold=22.0;
+// threshold  in micro G (gravity)
+float mpuThreshold=16.0;
+float udpThreshold= 20.0;
+float peakThreshold= 135.0;
 int8_t lightStatus=0;
 int8_t mpuEnable=1;
+int8_t mpuCalibrate=0;
 absolute_time_t startOnTime=0;  //  timestamp for ligt on delay
 int8_t weSetLightOn=0;
 int lightDelay = LIGHT_WAIT_DELAY;
-// FFT stuff  500samples/sec take 512 data points
+float LatestPeakGt=0;
+float LatestPower=0;
+float Gx_offset=784.6;
+float Gy_offset=10889.9;
+float Gz_offset=-11892.8;
 
+// mpu6050 is set to +/- 2G
+// g factor will set 1G=10000.0 (0.1 mG)
+float gFactor = 20000.0 / 32767.0;
+
+
+
+
+// FFT stuff  500samples/sec take 512 data points
 // my sensor is at 45 degree so  I use YZ vector
 // choice  sqrt(x*x + y*y + z*z)  USE_XYZ_VECTOR
-// or    .707 Y  - .707 Z 
+// or    .707 Y  - .707 Z
+
 #define USE_XYZ_VECTOR
 #undef USE_XYZ_VECTOR
 
-#define FSAMP 500
-#define NSAMP 512
+#define FSAMP 200
+#define NSAMP 256
+
+// FFT DECLARATION
+    volatile int current_in=1;
+    kiss_fft_scalar fft_in1[NSAMP]; // kiss_fft_scalar is a float
+    kiss_fft_scalar fft_in2[NSAMP]; // kiss_fft_scalar is a float
+    kiss_fft_cpx fft_out[NSAMP];
+    kiss_fftr_cfg cfg;
+    float  max_power = 0;
+    int max_idx = 0;
+    float peak1Gt;
+    float peak2Gt;
+
+
 
 float freqs[NSAMP/2];
 // data to record mpu6050 data
 // spectrum output to send via UDP
 // N.B. spectrum[0] is the max idx instead of the sum of all
-unsigned short spectrum[NSAMP/2];
+// last spectrum position will record the peakdiff before the fft
+unsigned short spectrum[NSAMP/2+1];
 
+
+/////// NTP STUFF
+typedef struct NTP_T_ {
+    ip_addr_t ntp_server_address;
+    bool dns_request_sent;
+    struct udp_pcb *ntp_pcb;
+    absolute_time_t ntp_test_time;
+    alarm_id_t ntp_resend_alarm;
+} NTP_T;
+
+#define NTP_SERVER "pool.ntp.org"
+#define NTP_MSG_LEN 48
+#define NTP_PORT 123
+#define NTP_DELTA 2208988800 // seconds between 1 Jan 1900 and 1 Jan 1970
+#define NTP_TEST_TIME (30 * 1000)
+#define NTP_RESEND_TIME (10 * 1000)
+#define NTP_MY_TIMEZONE (-4.0) // in second
+
+float myTimeZone = NTP_MY_TIMEZONE;
+
+// datestampe fill char buffer to the  curren date
+
+char * stampDate_dt(char * datestamp, datetime_t * dt)
+{
+    sprintf(datestamp,"%02d/%02d/%04d %02d:%02d:%02d", dt->day,dt->month,dt->year,
+                    dt->hour, dt->min, dt->sec);
+    return datestamp;
+}
+
+char * stampDate(char * datestamp)
+{
+    datetime_t dt;
+    rtc_get_datetime(&dt);
+    return  stampDate_dt(datestamp,&dt);
+}
+
+
+// Called with results of operation
+static void ntp_result(NTP_T* state, int status, time_t *result) {
+    int loop;
+    char datestamp[32];
+
+    if (status == 0 && result) {
+        time_t myResult = *result +  (time_t)(myTimeZone * 60 * 60);
+
+        struct tm *utc = gmtime(&myResult);
+
+     datetime_t dt;
+     dt.year= utc->tm_year+1900;
+     dt.month = utc->tm_mon+1;
+     dt.day = utc->tm_mday;
+     dt.dotw = utc->tm_wday;
+     dt.hour = utc->tm_hour;
+     dt.min = utc->tm_min;
+     dt.sec = utc->tm_sec;
+     rtc_set_datetime(&dt);
+     printf("got ntp response: %s\n",stampDate_dt(datestamp,&dt));
+    }
+
+    if (state->ntp_resend_alarm > 0) {
+        cancel_alarm(state->ntp_resend_alarm);
+        state->ntp_resend_alarm = 0;
+    }
+    state->ntp_test_time = make_timeout_time_ms(NTP_TEST_TIME);
+    state->dns_request_sent = false;
+}
+
+static int64_t ntp_failed_handler(alarm_id_t id, void *user_data);
+
+// Make an NTP request
+static void ntp_request(NTP_T *state) {
+    // cyw43_arch_lwip_begin/end should be used around calls into lwIP to ensure correct locking.
+    // You can omit them if you are in a callback from lwIP. Note that when using pico_cyw_arch_poll
+    // these calls are a no-op and can be omitted, but it is a good practice to use them in
+    // case you switch the cyw43_arch type later.
+    cyw43_arch_lwip_begin();
+    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, NTP_MSG_LEN, PBUF_RAM);
+    uint8_t *req = (uint8_t *) p->payload;
+    memset(req, 0, NTP_MSG_LEN);
+    req[0] = 0x1b;
+    udp_sendto(state->ntp_pcb, p, &state->ntp_server_address, NTP_PORT);
+    pbuf_free(p);
+    cyw43_arch_lwip_end();
+}
+
+static int64_t ntp_failed_handler(alarm_id_t id, void *user_data)
+{
+    NTP_T* state = (NTP_T*)user_data;
+    printf("ntp request failed\n");
+    ntp_result(state, -1, NULL);
+    return 0;
+}
+
+// Call back with a DNS result
+static void ntp_dns_found(const char *hostname, const ip_addr_t *ipaddr, void *arg) {
+    NTP_T *state = (NTP_T*)arg;
+    if (ipaddr) {
+        state->ntp_server_address = *ipaddr;
+        printf("ntp address %s\n", ip4addr_ntoa(ipaddr));
+        ntp_request(state);
+    } else {
+        printf("ntp dns request failed\n");
+        ntp_result(state, -1, NULL);
+    }
+}
+
+// NTP data received
+static void ntp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
+    NTP_T *state = (NTP_T*)arg;
+    uint8_t mode = pbuf_get_at(p, 0) & 0x7;
+    uint8_t stratum = pbuf_get_at(p, 1);
+
+    // Check the result
+    if (ip_addr_cmp(addr, &state->ntp_server_address) && port == NTP_PORT && p->tot_len == NTP_MSG_LEN &&
+        mode == 0x4 && stratum != 0) {
+        uint8_t seconds_buf[4] = {0};
+        pbuf_copy_partial(p, seconds_buf, sizeof(seconds_buf), 40);
+        uint32_t seconds_since_1900 = seconds_buf[0] << 24 | seconds_buf[1] << 16 | seconds_buf[2] << 8 | seconds_buf[3];
+        uint32_t seconds_since_1970 = seconds_since_1900 - NTP_DELTA;
+        time_t epoch = seconds_since_1970;
+        ntp_result(state, 0, &epoch);
+    } else {
+        printf("invalid ntp response\n");
+        ntp_result(state, -1, NULL);
+    }
+    pbuf_free(p);
+}
+
+// Perform initialisation
+static NTP_T* ntp_init(void) {
+    NTP_T *state = calloc(1, sizeof(NTP_T));
+    if (!state) {
+        printf("failed to allocate state\n");
+        return NULL;
+    }
+    state->ntp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+    if (!state->ntp_pcb) {
+        printf("failed to create pcb\n");
+        free(state);
+        return NULL;
+    }
+    udp_recv(state->ntp_pcb, ntp_recv, state);
+    return state;
+}
+
+void get_ntp_time() {
+    NTP_T *state = ntp_init();
+    if (!state)
+        return;
+
+    if (absolute_time_diff_us(get_absolute_time(), state->ntp_test_time) < 0 && !state->dns_request_sent) {
+
+        // Set alarm in case udp requests are lost
+        state->ntp_resend_alarm = add_alarm_in_ms(NTP_RESEND_TIME, ntp_failed_handler, state, true);
+
+        // cyw43_arch_lwip_begin/end should be used around calls into lwIP to ensure correct locking.
+        // You can omit them if you are in a callback from lwIP. Note that when using pico_cyw_arch_poll
+        // these calls are a no-op and can be omitted, but it is a good practice to use them in
+        // case you switch the cyw43_arch type later.
+        cyw43_arch_lwip_begin();
+        int err = dns_gethostbyname(NTP_SERVER, &state->ntp_server_address, ntp_dns_found, state);
+        cyw43_arch_lwip_end();
+
+        state->dns_request_sent = true;
+        if (err == ERR_OK) {
+            ntp_request(state); // Cached result
+        } else if (err != ERR_INPROGRESS) { // ERR_INPROGRESS means expect a callback
+            printf("dns request failed\n");
+            ntp_result(state, -1, NULL);
+        }
+    }
+#if PICO_CYW43_ARCH_POLL
+        // if you are using pico_cyw43_arch_poll, then you must poll periodically from your
+        // main loop (not from a timer) to check for WiFi driver or lwIP work that needs to be done.
+        cyw43_arch_poll();
+#endif
+    sleep_ms(1000);
+    free(state);
+}
 
 /////// UDP FUNCTION
-#ifdef ENABLE_UDP
-#define BUF_SIZE 1024
-char UDP_buffer[BUF_SIZE];
 
 struct udp_pcb  * send_udp_pcb;
 
@@ -92,9 +314,7 @@ void SendUDP(char * IP , int port, void * data, int data_size)
       cyw43_arch_lwip_end();
       pbuf_free(p);
 }
-#endif
 
-#ifdef ENABLE_MQTT
 ///////// MQTT STUFF
 typedef struct MQTT_CLIENT_DATA_T_ {
     mqtt_client_t* mqtt_client_inst;
@@ -103,10 +323,14 @@ typedef struct MQTT_CLIENT_DATA_T_ {
     uint8_t topic[100];
     uint32_t len;
 } MQTT_CLIENT_DATA_T;
+
+void publish(mqtt_client_t *client, char * topic, char *payload, int payload_size);
+
+
 MQTT_CLIENT_DATA_T *mqtt;
 struct mqtt_connect_client_info_t mqtt_client_info=
 {
-  "picoClient",
+  MQTT_CLIENT_NAME,
   NULL, /* user */
   NULL, /* pass */
   0,  /* keep alive */
@@ -119,8 +343,32 @@ struct mqtt_connect_client_info_t mqtt_client_info=
 #endif
 };
 
+void publishStatus(void)
+{
+      char datestamp[32];
+      char info[1024];
+      sprintf(info,"%s %s enable:%s trigger Threshold  mpu:%.1f  udp:%.1f  peak:%.1f UDP host IP: '%s'"
+                   "raw offset  x:%.1f y:%.1f z:%.1f Latest Peak:%.1f FFT:%.1f",
+                stampDate(datestamp),
+                lightStatus ? "ON" : "OFF",
+                mpuEnable ? "ON" : "OFF",
+                mpuThreshold,
+                udpThreshold,
+                peakThreshold,
+                udpHostIP,
+                Gx_offset ,
+                Gy_offset ,
+                Gz_offset ,
+                LatestPeakGt,
+                LatestPower);
+      publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS,info,strlen(info));
+      printf("%s\n",info);
+}
+
+
 static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags) {
     int _itemp;
+    float _ftemp;
     MQTT_CLIENT_DATA_T* mqtt_client = (MQTT_CLIENT_DATA_T*)arg;
     LWIP_UNUSED_ARG(data);
 
@@ -136,7 +384,8 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
          lightStatus = 0;
       printf("LightStatus : %d\n",lightStatus);
     }
-    else
+// we only use one response from one tasmota
+/*    else
     if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_HAUT)==0)
     {
       if (strcmp(mqtt_client->data,"ON")==0)
@@ -145,14 +394,33 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
          lightStatus = 0;
       printf("LightStatus : %d\n",lightStatus);
     }
+*/
     else
     if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_THRESHOLD)==0)
     {
-      _itemp = atoi(mqtt_client->data);
-      if(_itemp < 1)
-          _itemp=500;
-      mpuThreshold=(float) _itemp;
-      printf("mpu6050 FFT Peak Threshold set to %0.f\n",mpuThreshold);
+      _ftemp = atof(mqtt_client->data);
+      if(_ftemp < 0.0)
+          _ftemp=1.0;
+      mpuThreshold= _ftemp;
+      printf("mpu6050 FFT Trigger Threshold set to %.1f (0.1 x mG)\n",mpuThreshold);
+    }
+    else
+    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_UDPTHRESHOLD)==0)
+    {
+      _ftemp = atof(mqtt_client->data);
+      if(_ftemp < 0.0)
+          _ftemp=1.0;
+      udpThreshold=(float) _ftemp;
+      printf("mpu6050 FFT Trigger  Threshold on udp set to %.1f (0.1 x mG)\n",udpThreshold);
+    }
+    else
+    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_PEAKTHRESHOLD)==0)
+    {
+      _ftemp = atof(mqtt_client->data);
+      if(_ftemp < 0.0)
+          _ftemp=1.0;
+      peakThreshold=(float) _ftemp;
+      printf("mpu6050 signal Peak Trigger Threshold set to %.1f (0.1 x mG)\n",peakThreshold);
     }
     else
     if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_DELAY)==0)
@@ -180,7 +448,23 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
       if(_itemp)
           printf("MPU6050 set enable to %d\n",mpuEnable);
     }
-
+    else
+    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_INFO)==0)
+    {
+      publishStatus();
+    }
+    else
+    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_UDP_HOST_IP)==0)
+    {
+      strncpy(udpHostIP,mqtt_client->data,255);
+      udpHostIP[255]=0;
+      printf("UDP host IP set to '%s'\n",udpHostIP);
+    }
+    else
+    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_CALIBRATE)==0)
+    {
+      mpuCalibrate=1;
+    }
 }
 
 static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len) {
@@ -204,15 +488,15 @@ LWIP_PLATFORM_DIAG(("MQTT client \"%s\" connection cb: status %d\n", mqtt_client
             TOPIC_ESCALIER_BAS, 0,
             mqtt_request_cb, arg,
             1);
-    mqtt_sub_unsub(client,
+/*    mqtt_sub_unsub(client,
             TOPIC_ESCALIER_HAUT, 0,
             mqtt_request_cb, arg,
             1);
+*/
     mqtt_sub_unsub(client,
             TOPIC_CMND_ESCALIER, 0,
             mqtt_request_cb, arg,
             1);
-
   }
 }
 /* Called when publish is complete either with success or failure */
@@ -233,11 +517,9 @@ void publish(mqtt_client_t *client, char * topic, char *payload, int payload_siz
   }
 }
 
-#endif
 ///////// MPU6050 FUNCTION  & I2C
 // By default these devices  are on bus address 0x68
 
-#define FIFO_ENABLE
 
 static int addr = 0x68;
 
@@ -277,6 +559,7 @@ static void mpu6050_reset() {
     uint8_t tbuf[] = {0x6B, 0x00};
     i2c_write_blocking(i2c_default, addr, tbuf, 2, false);
 
+
     sleep_ms(1000);
     // Two byte reset. First byte register, second byte data
     // There are a load more options to set up the device in different ways that could be added here
@@ -313,63 +596,71 @@ static void mpu6050_read_acc(int16_t accel[3])
 }
 
 
-// FFT DECLARATION
-
-    volatile int current_in=1;
-    kiss_fft_scalar fft_in1[NSAMP]; // kiss_fft_scalar is a float
-    kiss_fft_scalar fft_in2[NSAMP]; // kiss_fft_scalar is a float
-    kiss_fft_cpx fft_out[NSAMP];
-    kiss_fftr_cfg cfg;
-    float  max_power = 0;
-    int max_idx = 0;
 
 
 // DO_FFT this is the thread to read MPU6050 on second cpu and send UDP
 void Do_FFT()
 {
-         char buffer[128];
+         char datestamp[32];
+         char buffer[256];
+         float peakGt;
           while(1)
           {
           // do fft
-          int check_in = multicore_fifo_pop_blocking();
 
+          int check_in = multicore_fifo_pop_blocking();
           if(check_in==1)
-          kiss_fftr(cfg , fft_in1, fft_out);
+               kiss_fftr(cfg , fft_in1, fft_out);
           else
-          kiss_fftr(cfg , fft_in2, fft_out);
+               kiss_fftr(cfg , fft_in2, fft_out);
+
           // find max freq
           // compute power and calculate max freq component
           max_power = 0;
           max_idx = 0;
           // any frequency bin over NSAMP/2 is aliased (nyquist sampling theorum)
+
           for (int i = 1; i < NSAMP/2; i++) {
               float power = sqrt(fft_out[i].r*fft_out[i].r+fft_out[i].i*fft_out[i].i);
-              spectrum[i]= (unsigned short) power;
+              power/= (NSAMP/2);
+              if(power>655535.0)
+                  spectrum[i]= 65535;
+              else
+                  spectrum[i]= (unsigned short) power;
               if (power>max_power) {
 	          max_power=power;
 	          max_idx = i;
               }
            }
-           // normalize max_power
-	        max_power /= (NSAMP/2);
 
-            sprintf(buffer," Freq: %.1f   mG:%.03f\n\0", freqs[max_idx],max_power);
+
+            LatestPeakGt= check_in == 1 ? peak1Gt: peak2Gt;
+            LatestPower=max_power;
+
+            stampDate(datestamp);
+            sprintf(buffer,"%s Idx=%d  Freq: %.1f   mG:%.03f  PeakDif=%0.3f\n\0",datestamp,max_idx, freqs[max_idx],LatestPower,LatestPeakGt);
             printf(buffer);
-#ifdef ENABLE_UDP
-          if(max_power > mpuThreshold)
+
+            peakGt = (check_in == 1) ?  peak1Gt : peak2Gt;
+
+          if(strlen(udpHostIP)!=0)
           {
-             spectrum[0]=max_idx;
-            int ln = strlen(UDP_buffer);
-            SendUDP(SEND_TO_IP,SEND_TO_PORT,spectrum,sizeof(unsigned short) *  (NSAMP/2));
+          if(max_power > udpThreshold)
+          {
+            spectrum[0]=max_idx;
+            spectrum[NSAMP/2]= peakGt;
+            SendUDP(udpHostIP,SEND_TO_PORT,spectrum,sizeof(unsigned short) *  (NSAMP/2));
           }
-#endif
-#ifdef ENABLE_MQTT
+          }
+
          if(mpuEnable)
              { // are we in the nigth
-              if(max_power > mpuThreshold)
+              if((max_power > mpuThreshold) && ( peakGt > peakThreshold))
                   {  // ok we got someting
                    if(lightStatus==0)
                        { // light is off then turn it on
+
+                        publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_GOT_TRIGGER,buffer, strlen(buffer));
                         publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_POWER,"ON\0",3);
                         weSetLightOn=1;
                        }
@@ -389,23 +680,58 @@ void Do_FFT()
                   else
                     weSetLightOn=0;
              }
-#endif
           multicore_fifo_push_blocking(check_in);
           }
 }
 
+void mpu6050_Calibrate(void)
+{
+  int16_t acceleration[3];
+  int  total5seconds= 5 * FSAMP;
+  float Gx_sum=0;
+  float Gy_sum=0;
+  float Gz_sum=0;
+
+  for(int i=0;i<total5seconds;i++)
+  {
+     while(true)
+     {
+       if(mpu6050_status() & 1)
+         {
+          mpu6050_read_acc(acceleration);
+          Gx_sum += (float) acceleration[0];
+          Gy_sum += (float) acceleration[1];
+          Gz_sum += (float) acceleration[2];
+          break;
+         }
+       sleep_us(100);
+     }
+  }
+
+  Gx_offset=  Gx_sum / (float) total5seconds;
+  Gy_offset=  Gy_sum / (float) total5seconds;
+  Gz_offset=  Gz_sum / (float) total5seconds;
+
+  publishStatus();
+}
+
+
 int main() {
     stdio_init_all();
 
-    // convert  mpu6050 digital value to milli g  (gravity)
-    float gFactor = 2000.0 / 32767.0;
+    // convert  mpu6050 digital value to 0.1mg  (gravity 1g = 10000)
+    // for best integer output to udp host
 
     int first=1;  // first record not done yet
     int loop=0;
     int recordIdx=0;
     extern struct netif gnetif;
     int16_t acceleration[3];
-    float g[4];
+    float g[3];
+    float Gt=0;
+    float peakGt=0;
+    // On boot No UDP
+    strcpy(udpHostIP,"\0");
 
     // create Frequency Table
     for(loop=1;loop<NSAMP/2;loop++)
@@ -433,7 +759,10 @@ int main() {
         printf("IP: %s\n",ipaddr_ntoa(((const ip_addr_t *)&cyw43_state.netif[0].ip_addr)));
     }
 
+    rtc_init();
+    get_ntp_time();
 
+    sleep_ms(1000);
     // set I2C pins
     // This example will use I2C0 on the default SDA and SCL pins (4, 5 on a Pico)
     i2c_init(i2c_default, 400 * 1000);
@@ -444,12 +773,9 @@ int main() {
     // Make the I2C pins available to picotool
     bi_decl(bi_2pins_with_func(PICO_DEFAULT_I2C_SDA_PIN, PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C));
 
-#ifdef ENABLE_UDP
     // create UDP
     send_udp_pcb = udp_new();
-#endif
 
-#ifdef ENABLE_MQTT
         mqtt=(MQTT_CLIENT_DATA_T*)calloc(1, sizeof(MQTT_CLIENT_DATA_T));
 
     if (!mqtt) {
@@ -475,7 +801,6 @@ int main() {
     }
     else
     printf("Client connected\n");
-#endif
 
     // reset MPU6050
     mpu6050_reset();
@@ -484,30 +809,41 @@ int main() {
     // launch thread to calculate FFT and publish via UDP
     multicore_launch_core1(Do_FFT);
 
+    publishStatus();
+
     while (1) {
 
+       if(mpuCalibrate)
+        {
+          mpu6050_Calibrate();
+          mpuCalibrate=0;
+          recordIdx=0;
+          continue;
+        }
        // do we have MPU6050 data
        if(mpu6050_status() & 1)
         {
           mpu6050_read_acc(acceleration);
-          g[0] = (float) acceleration[0];
-          g[1] = (float) acceleration[1];
-          g[2] = (float) acceleration[2];
+          g[0] = (float) acceleration[0] - Gx_offset;
+          g[1] = (float) acceleration[1] - Gy_offset;
+          g[2] = (float) acceleration[2] - Gz_offset;
+
+
 
 #ifdef USE_XYZ_VECTOR
-          g[3] = sqrt(g[0]*g[0]+ g[1]*g[1] + g[2]*g[2]) * gFactor;
+          Gt = sqrt(g[0]*g[0]+ g[1]*g[1] + g[2]*g[2]) * gFactor;
 #else
           // my sensor is  45 degree  the horizontal is on x axis
-          g[3] =  0.707 * ( g[1] - g[2]);
+          Gt =  0.707 * ( g[1] - g[2]) * gFactor;
 #endif
 
-          // alternate data record  for the thread FFT calculation
-          //  calculate FFT on one and store on the other
-          //   g[3]= sintable[recordIdx];   pi test purpose
+          if(Gt > peakGt)
+             peakGt = Gt;
+
           if(current_in == 1)
-            fft_in1[recordIdx] = g[3];
+            fft_in1[recordIdx] = Gt;
           else
-            fft_in2[recordIdx] = g[3];
+            fft_in2[recordIdx] = Gt;
           recordIdx++;
         }
         // did we fill completely the record
@@ -522,10 +858,12 @@ int main() {
           if(current_in == 1)
             {
              // copy second half to next fft_in1
+               peak1Gt= peakGt;
                memcpy(fft_in2,&fft_in1[NSAMP/2],sizeof(float)*NSAMP/2);
              }
            else
             {
+               peak2Gt= peakGt;
                memcpy(fft_in1,&fft_in2[NSAMP/2],sizeof(float)*NSAMP/2);
             }
 
@@ -537,8 +875,10 @@ int main() {
           // prepare to record next dat on alternate record
           recordIdx=NSAMP/2;
           current_in = (current_in) == 1 ? 2 :1;
+          peakGt=0;
         }
     }
     kiss_fft_free(cfg);
     return 0;
 }
+
