@@ -62,6 +62,8 @@ int Load_Settings(void)
    mpuSettings.udpThreshold = 20.0;
    mpuSettings.peakThreshold = 150.0;
    mpuSettings.lightDelay = 30;
+   for(int loop=0;loop<NSAMP/2;loop++)
+     mpuSettings.Mask[loop]=1;
    Write_Settings();
    return 1;
   }

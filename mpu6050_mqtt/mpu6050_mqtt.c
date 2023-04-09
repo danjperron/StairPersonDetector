@@ -35,7 +35,7 @@ char udpHostIP[256];
 
 #define MQTT_HOST_IP "10.11.12.192"
 #define MQTT_HOST_PORT 1883
-#define MQTT_CLIENT_NAME "escalier2"
+#define MQTT_CLIENT_NAME "escalier"
 
 
 
@@ -59,8 +59,10 @@ char udpHostIP[256];
 #define TOPIC_ESCALIER_INFO          TOPIC_CMND"/info"
 #define TOPIC_ESCALIER_UDP_HOST_IP   TOPIC_CMND"/udphostip"
 #define TOPIC_ESCALIER_CALIBRATE     TOPIC_CMND"/calibrate"
-
-
+#define TOPIC_ESCALIER_CLR_MASK      TOPIC_CMND"/clrmask"
+#define TOPIC_ESCALIER_SET_MASK      TOPIC_CMND"/setmask"
+#define TOPIC_ESCALIER_GET_MASK      TOPIC_CMND"/getmask"
+#define TOPIC_ESCALIER_STATUS_MASK      TOPIC_STAT"/mask"
 
 // threshold  in  0.1mG  1G=10000
 int8_t lightStatus=0;
@@ -70,7 +72,7 @@ absolute_time_t startOnTime=0;  //  timestamp for ligt on delay
 int8_t weSetLightOn=0;
 float LatestPeakGt=0;
 float LatestPower=0;
-
+int LatestFreqIdx=0;
 // mpu6050 is set to +/- 2G
 // g factor will set 1G=10000.0 (0.1 mG)
 float gFactor = 20000.0 / 32767.0;
@@ -155,12 +157,44 @@ struct mqtt_connect_client_info_t mqtt_client_info=
 #endif
 };
 
+void publish_mask(int value)
+ {
+    char dt[32];
+    char info[256];
+
+  stampDate(dt);
+  if(value == -1)
+    {
+      sprintf(info,"%s All mask array is clear",dt);
+    }
+  else  if(value == -2)
+    {
+      sprintf(info,"%s All mask array is  set",dt);
+    }
+  else  if((value>NSAMP/2) || (value<1))
+    {
+          sprintf(info,"%s Invalid mask Idx %d",dt,value);
+   }
+  else
+   sprintf(info,"%s Mask[%d]:%d  Freq:%.0fHz",dt,value,mpuSettings.Mask[value],freqs[value]);
+  publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS_MASK,info,strlen(info));
+  printf("%s\n",info);
+}
+
+void putMask(int idx,int value )
+{
+  if(idx>0)
+    if(idx<(NSAMP/2))
+      mpuSettings.Mask[idx]=value;
+}
+
+
 void publishStatus(void)
 {
       char datestamp[32];
       char info[1024];
       sprintf(info,"%s Light:%s Delay:%d Enable:%s trigger Threshold  mpu:%.1f  udp:%.1f  peak:%.1f "
-                   "raw offset  x:%.1f y:%.1f z:%.1f Latest Peak:%.1f FFT:%.1f"
+                   "raw offset  x:%.1f y:%.1f z:%.1f Latest Peak:%.1f FFT:%.1f Freq(%d):%.0fHz"
                    " UDP_host_IP: '%s'",
                 stampDate(datestamp),
                 lightStatus ? "ON" : "OFF",
@@ -174,6 +208,8 @@ void publishStatus(void)
                 mpuSettings.Gz_offset ,
                 LatestPeakGt,
                 LatestPower,
+                LatestFreqIdx,
+                freqs[LatestFreqIdx],
                 udpHostIP);
       publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS,info,strlen(info));
       printf("%s\n",info);
@@ -190,11 +226,11 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     mqtt_client->len=len;
     mqtt_client->data[len]='\0';
     bool flag = false;
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_BAS)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_BAS)==0)
     {
-      if (strcmp(mqtt_client->data,"ON")==0)
+      if (strcasecmp(mqtt_client->data,"ON")==0)
          lightStatus = 1;
-      else if(strcmp(mqtt_client->data,"OFF")==0)
+      else if(strcasecmp(mqtt_client->data,"OFF")==0)
          lightStatus = 0;
       printf("LightStatus : %d\n",lightStatus);
     }
@@ -210,7 +246,7 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     }
 */
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_THRESHOLD)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_THRESHOLD)==0)
     {
       _ftemp = atof(mqtt_client->data);
       if(_ftemp < 0.0)
@@ -220,7 +256,7 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
       printf("mpu6050 FFT Trigger Threshold set to %.1f (0.1 x mG)\n",mpuSettings.mpuThreshold);
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_UDPTHRESHOLD)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_UDPTHRESHOLD)==0)
     {
       _ftemp = atof(mqtt_client->data);
       if(_ftemp < 0.0)
@@ -230,7 +266,7 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
       printf("mpu6050 FFT Trigger  Threshold on udp set to %.1f (0.1 x mG)\n",mpuSettings.udpThreshold);
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_PEAKTHRESHOLD)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_PEAKTHRESHOLD)==0)
     {
       _ftemp = atof(mqtt_client->data);
       if(_ftemp < 0.0)
@@ -240,7 +276,7 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
       printf("mpu6050 signal Peak Trigger Threshold set to %.1f (0.1 x mG)\n",mpuSettings.peakThreshold);
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_DELAY)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_DELAY)==0)
     {
       _itemp = atoi(mqtt_client->data);
       if(_itemp < 1)
@@ -251,12 +287,12 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
 
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_ENABLE)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_ENABLE)==0)
     {
       _itemp=1;
-      if (strcmp(mqtt_client->data,"ON")==0)
+      if (strcasecmp(mqtt_client->data,"ON")==0)
          mpuEnable = 1;
-      else if (strcmp(mqtt_client->data,"OFF")==0)
+      else if (strcasecmp(mqtt_client->data,"OFF")==0)
          mpuEnable = 0;
       else if (strcmp(mqtt_client->data,"0")==0)
          mpuEnable = 0;
@@ -267,21 +303,67 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
           printf("MPU6050 set enable to %d\n",mpuEnable);
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_INFO)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_INFO)==0)
     {
       publishStatus();
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_UDP_HOST_IP)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_UDP_HOST_IP)==0)
     {
       strncpy(udpHostIP,mqtt_client->data,255);
       udpHostIP[255]=0;
       printf("UDP host IP set to '%s'\n",udpHostIP);
     }
     else
-    if (strcmp(mqtt_client->topic, TOPIC_ESCALIER_CALIBRATE)==0)
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_CALIBRATE)==0)
     {
       mpuCalibrate=1;
+    }
+    else
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_CLR_MASK)==0)
+    {
+      if (strcasecmp(mqtt_client->data,"ALL")==0)
+      {
+           for(int loop=0;loop<(NSAMP/2);loop++)
+             putMask(loop,0);
+           _itemp=-1;
+      }
+     else
+     {
+      _itemp = atoi(mqtt_client->data);
+      if(_itemp<0) 
+        _itemp=0;
+      putMask(_itemp,0);
+     }
+           Write_Settings();
+           publish_mask(_itemp);
+    }
+    else
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_SET_MASK)==0)
+    {
+      if (strcasecmp(mqtt_client->data,"ALL")==0)
+      {
+           for(int loop=1;loop<(NSAMP/2);loop++)
+              putMask(loop,1);
+           _itemp=-2;
+      }
+     else
+     {
+      _itemp = atoi(mqtt_client->data);
+      if(_itemp <0) 
+        _itemp=0;
+      putMask(_itemp,1);
+     }
+           Write_Settings();
+           publish_mask(_itemp);
+    }
+   else
+    if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_GET_MASK)==0)
+    {
+      _itemp = atoi(mqtt_client->data);
+      if(_itemp<0)
+        _itemp=0;
+      publish_mask(_itemp);
     }
 }
 
@@ -364,15 +446,17 @@ void Do_FFT()
                   spectrum[i]= 65535;
               else
                   spectrum[i]= (unsigned short) power;
-              if (power>max_power) {
-	          max_power=power;
-	          max_idx = i;
-              }
+              if(mpuSettings.Mask[i])
+                if (power>max_power) {
+   	              max_power=power;
+	              max_idx = i;
+                }
            }
 
 
             LatestPeakGt= check_in == 1 ? peak1Gt: peak2Gt;
             LatestPower=max_power;
+            LatestFreqIdx = max_idx;
 
             stampDate(datestamp);
             sprintf(buffer,"%s Idx=%d  Freq: %.1f   max FFT value:%.03f  signal Peak:%0.3f\n\0",datestamp,max_idx, freqs[max_idx],LatestPower,LatestPeakGt);
@@ -478,8 +562,9 @@ int main() {
     strcpy(udpHostIP,"\0");
 
     // create Frequency Table
+    freqs[0]=0;
     for(loop=1;loop<NSAMP/2;loop++)
-        freqs[loop]= (((float) FSAMP / NSAMP) *loop);
+        freqs[loop]= (((float) NSAMP / FSAMP) *loop);
 
 
     // allocate FFT

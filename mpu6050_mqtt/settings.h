@@ -4,6 +4,7 @@
 #define FLASH_SETTINGS
 
 #include "pico/stdlib.h"
+#include "mpu6050_i2c.h"
 
 
 
@@ -16,6 +17,7 @@ typedef struct{
   float udpThreshold;
   float peakThreshold;
   int lightDelay;
+  uint8_t Mask[NSAMP/2];
 } mpuSettingsStruct;
 
 extern mpuSettingsStruct  mpuSettings;

@@ -1,4 +1,4 @@
-#define FSAMP 200
+#define FSAMP 250
 #define NSAMP 256
 
 

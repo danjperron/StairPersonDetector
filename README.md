@@ -25,17 +25,19 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   It uses an I.R. distance indicator check https://github.com/danjperron/VL53L0X_pico<br>
   folder pico_escalier.   This is the current version using the VL53L0 sensor to turn Light ON/OFF via MQTT<br>
   <a href="https://youtu.be/ci57-oai_Nk"> you tube video (in french)</a><br>
-  
-  
+ 
+ 
 - Third and last trial !  Return back to mpu6050 and MQTT<br>
   Fix a bug in sampling rate and since this is only for the night walking around the stair is not an issue.<br>
   Two Threshold.  The FFT peak threshold and the peak threshold  before FFT<br>
   Folder mpu6050_mqtt<br>
-  
+ 
   The output data unit are now 1g = 10000.  This was the best way to incorporate the +/- 2G input 16bits for the UDP.
   I Also add the NTP request for the date
   This is the mqtt command.<br>
-    
+
+  N.B. add-on Enable/Disable some frequency from the FFT index on Max Peak calculation.
+ 
     <blockquote>/cmnd/escalier/delay -> delay to let the light ON.<br>
     /cmnd/escalier/threshold     -> minimum FFT peak detection to trigger the light.<br>
     /cmnd/escalier/peakthreshold -> minimum FFT peak detection to trigger the light.<br>
@@ -44,7 +46,12 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
     /cmnd/escalier/calibrate     ->   calibrate accelerometer offset for 5 sec.<br>
     /cmnd/escalier/udpthreshold  -> minimum FFT peak detection to trigger the udp transfer.<br>
     /cmnd/escalier/udphostip.    -> specification of the IP address to post the UDP packet.<br></blockquote>
-    
+    ---- add-on  possibility to enable/disable output dimension table of FFT[x]
+    ---- where x is the index of the FFT table. the MQTT message set x.   TO set or clear use 'all' in message
+    /cmnd/escalier/getmask       -> retreive FFT part index .
+    /cmnd/escalier/setmask       -> Enable   FFT[x] in the maximun peak Threshold.
+    /cmnd/escalier/clrmask       -> Disable  FFT[x] in the maximun peak Threshold.
+ 
   ex: using mosquitto to set udp host IP<br>
        mosquitto_pub -h "your borker IP" -t "cmnd/escalier/udphostip" -m "192.168.0.1".   or -m "" to disable udp.
   
