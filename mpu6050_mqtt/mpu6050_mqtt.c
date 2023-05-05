@@ -1,8 +1,16 @@
 
 /**
- * Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+ * Copyright (c) 2023 Daniel Perron
  *
- * SPDX-License-Identifier: BSD-3-Clause
+ *  stair vibration detyector
+ *
+ *
+ *   V1.01 May 2023 
+ *   Change lastestThreshold to maxThreshold
+ *   sending a MQTT info will show the maxThreshold since the previous info command
+ *   very handy to set the proper threshold and peaktreshold command
+ *
+ *   N.B. don't forget to send a MQTT command  "cmnd/escalier/calibrate" -m ""  to set acc offset
  */
 
 #include <stdio.h>
@@ -38,7 +46,8 @@ char udpHostIP[256];
 #define MQTT_CLIENT_NAME "escalier"
 
 
-
+#define PRINT_DEBUG
+#undef PRINT_DEBUG
 
 #define TOPIC_ESCALIER_BAS   "stat/escalierBas/POWER"
 // we only need the stat of one tasmota switch
@@ -70,13 +79,12 @@ int8_t mpuEnable=1;
 int8_t mpuCalibrate=0;
 absolute_time_t startOnTime=0;  //  timestamp for ligt on delay
 int8_t weSetLightOn=0;
-float LatestPeakGt=0;
-float LatestPower=0;
-int LatestFreqIdx=0;
 // mpu6050 is set to +/- 2G
 // g factor will set 1G=10000.0 (0.1 mG)
 float gFactor = 20000.0 / 32767.0;
-
+float maxThreshold = 0;
+float maxPeakThreshold = 0;
+int maxThresholdFreq=0;
 
 
 
@@ -86,7 +94,7 @@ float gFactor = 20000.0 / 32767.0;
 // or    .707 Y  - .707 Z
 
 #define USE_XYZ_VECTOR
-#undef USE_XYZ_VECTOR
+//#undef USE_XYZ_VECTOR
 
 
 // FFT DECLARATION
@@ -178,7 +186,9 @@ void publish_mask(int value)
   else
    sprintf(info,"%s Mask[%d]:%d  Freq:%.0fHz",dt,value,mpuSettings.Mask[value],freqs[value]);
   publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS_MASK,info,strlen(info));
+#ifdef PRINT_DEBUG
   printf("%s\n",info);
+#endif
 }
 
 void putMask(int idx,int value )
@@ -194,7 +204,7 @@ void publishStatus(void)
       char datestamp[32];
       char info[1024];
       sprintf(info,"%s Light:%s Delay:%d Enable:%s trigger Threshold  mpu:%.1f  udp:%.1f  peak:%.1f "
-                   "raw offset  x:%.1f y:%.1f z:%.1f Latest Peak:%.1f FFT:%.1f Freq(%d):%.0fHz"
+                   "raw offset  x:%.1f y:%.1f z:%.1f Max.Thredhold Peak:%.1f FFT:%.1f Freq(%d):%.0fHz"
                    " UDP_host_IP: '%s'",
                 stampDate(datestamp),
                 lightStatus ? "ON" : "OFF",
@@ -206,15 +216,21 @@ void publishStatus(void)
                 mpuSettings.Gx_offset ,
                 mpuSettings.Gy_offset ,
                 mpuSettings.Gz_offset ,
-                LatestPeakGt,
-                LatestPower,
-                LatestFreqIdx,
-                freqs[LatestFreqIdx],
+                maxPeakThreshold ,
+                maxThreshold ,
+                maxThresholdFreq,
+                freqs[maxThresholdFreq],
                 udpHostIP);
       publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS,info,strlen(info));
-      printf("%s\n",info);
-}
+      // reset max info
+      maxThreshold = 0;
+      maxPeakThreshold = 0;
+      maxThresholdFreq=0;
 
+#ifdef PRINT_DEBUG
+   printf("%s\n",info);
+#endif
+}
 
 static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags) {
     int _itemp;
@@ -232,7 +248,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
          lightStatus = 1;
       else if(strcasecmp(mqtt_client->data,"OFF")==0)
          lightStatus = 0;
+#ifdef PRINT_DEBUG
       printf("LightStatus : %d\n",lightStatus);
+#endif
     }
 // we only use one response from one tasmota
 /*    else
@@ -253,7 +271,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
           _ftemp=1.0;
       mpuSettings.mpuThreshold= _ftemp;
       Write_Settings();
+#ifdef PRINT_DEBUG
       printf("mpu6050 FFT Trigger Threshold set to %.1f (0.1 x mG)\n",mpuSettings.mpuThreshold);
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_UDPTHRESHOLD)==0)
@@ -263,7 +283,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
           _ftemp=1.0;
       mpuSettings.udpThreshold=(float) _ftemp;
       Write_Settings();
+#ifdef PRINT_DEBUG
       printf("mpu6050 FFT Trigger  Threshold on udp set to %.1f (0.1 x mG)\n",mpuSettings.udpThreshold);
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_PEAKTHRESHOLD)==0)
@@ -273,7 +295,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
           _ftemp=1.0;
       mpuSettings.peakThreshold=(float) _ftemp;
       Write_Settings();
+#ifdef PRINT_DEBUG
       printf("mpu6050 signal Peak Trigger Threshold set to %.1f (0.1 x mG)\n",mpuSettings.peakThreshold);
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_DELAY)==0)
@@ -283,8 +307,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
           _itemp=120;
       mpuSettings.lightDelay=_itemp;
       Write_Settings();
+#ifdef PRINT_DEBUG
       printf("Light ON delay set to %d\n",mpuSettings.lightDelay);
-
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_ENABLE)==0)
@@ -299,8 +324,10 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
       else if (strcmp(mqtt_client->data,"1")==0)
          mpuEnable = 1;
       else _itemp=0;
+#ifdef PRINT_DEBUG
       if(_itemp)
           printf("MPU6050 set enable to %d\n",mpuEnable);
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_INFO)==0)
@@ -312,7 +339,9 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     {
       strncpy(udpHostIP,mqtt_client->data,255);
       udpHostIP[255]=0;
+#ifdef PRINT_DEBUG
       printf("UDP host IP set to '%s'\n",udpHostIP);
+#endif
     }
     else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_CALIBRATE)==0)
@@ -383,7 +412,9 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
 
 LWIP_PLATFORM_DIAG(("MQTT client \"%s\" connection cb: status %d\n", mqtt_client->mqtt_client_info.client_id, (int)status));
   if (status == MQTT_CONNECT_ACCEPTED) {
+#ifdef PRINT_DEBUG
     printf("MQTT client accepted\n");
+#endif
     mqtt_sub_unsub(client,
             TOPIC_ESCALIER_BAS, 0,
             mqtt_request_cb, arg,
@@ -402,9 +433,11 @@ LWIP_PLATFORM_DIAG(("MQTT client \"%s\" connection cb: status %d\n", mqtt_client
 /* Called when publish is complete either with success or failure */
 static void mqtt_pub_request_cb(void *arg, err_t result)
 {
+#ifdef PRINT_DEBUG
   if(result != ERR_OK) {
     printf("Publish result: %d\n", result);
   }
+#endif
 }
 void publish(mqtt_client_t *client, char * topic, char *payload, int payload_size)
 {
@@ -412,9 +445,11 @@ void publish(mqtt_client_t *client, char * topic, char *payload, int payload_siz
   u8_t qos = 2; /* 0 1 or 2, see MQTT specification */
   u8_t retain = 0; /* No don't retain such crappy payload... */
   err = mqtt_publish(client, topic, payload, payload_size, qos, retain, mqtt_pub_request_cb,NULL);
+#ifdef PRINT_DEBUG
   if(err != ERR_OK) {
     printf("Publish err: %d\n", err);
   }
+#endif
 }
 
 // DO_FFT this is the thread to read MPU6050 on second cpu and send UDP
@@ -454,15 +489,25 @@ void Do_FFT()
            }
 
 
-            LatestPeakGt= check_in == 1 ? peak1Gt: peak2Gt;
-            LatestPower=max_power;
-            LatestFreqIdx = max_idx;
 
-            stampDate(datestamp);
-            sprintf(buffer,"%s Idx=%d  Freq: %.1f   max FFT value:%.03f  signal Peak:%0.3f\n\0",datestamp,max_idx, freqs[max_idx],LatestPower,LatestPeakGt);
-            printf(buffer);
+            if(maxThreshold < max_power)
+              {
+                maxThreshold = max_power;
+                maxThresholdFreq = max_idx;
+              }
 
             peakGt = (check_in == 1) ?  peak1Gt : peak2Gt;
+
+            if(maxPeakThreshold < peakGt)
+               maxPeakThreshold = peakGt;
+
+            stampDate(datestamp);
+
+          sprintf(buffer,"%s Idx=%d  Freq: %.1f   max FFT value:%.03f  signal Peak:%0.3f\n\0",\
+                  datestamp,max_idx, freqs[max_idx],max_power,peakGt);
+#ifdef PRINT_DEBUG
+          printf(buffer);
+#endif
 
           if(strlen(udpHostIP)!=0)
           {
@@ -573,19 +618,26 @@ int main() {
 
     // initialize wifi
     if (cyw43_arch_init()) {
+#ifdef PRINT_DEBUG
         printf("Init failed!\n");
+#endif
         return 1;
     }
     cyw43_pm_value(CYW43_NO_POWERSAVE_MODE,200,1,1,10);
     cyw43_arch_enable_sta_mode();
-
+#ifdef PRINT_DEBUG
     printf("WiFi ... ");
+#endif
     if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
+#ifdef PRINT_DEBUG
         printf("failed!\n");
+#endif
         return 1;
     } else {
+#ifdef PRINT_DEBUG
         printf("Connected.n");
         printf("IP: %s\n",ipaddr_ntoa(((const ip_addr_t *)&cyw43_state.netif[0].ip_addr)));
+#endif
     }
 
     rtc_init();
@@ -608,14 +660,18 @@ int main() {
         mqtt=(MQTT_CLIENT_DATA_T*)calloc(1, sizeof(MQTT_CLIENT_DATA_T));
 
     if (!mqtt) {
+#ifdef PRINT_DEBUG
         printf("mqtt client instant ini error\n");
+#endif
         return 0;
     }
 
    mqtt->mqtt_client_info = mqtt_client_info;
    ip_addr_t addr;
    if (!ip4addr_aton(MQTT_HOST_IP, &addr)) {
+#ifdef PRINT_DEBUG
         printf("ip error\n");
+#endif
         return 0;
     }
 
@@ -624,12 +680,13 @@ int main() {
 
     err_t err = mqtt_client_connect(mqtt->mqtt_client_inst, &addr, MQTT_HOST_PORT,
          &mqtt_connection_cb, mqtt, &mqtt->mqtt_client_info);
-
+#ifdef PRINT_DEBUG
     if (err != ERR_OK) {
       printf("connect error\n");
     }
     else
     printf("Client connected\n");
+#endif
 
     // reset MPU6050
     mpu6050_reset();
