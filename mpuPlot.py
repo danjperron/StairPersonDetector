@@ -12,13 +12,12 @@ import threading
 
 # need to be the same than pico mpu6050
 #FSAMP   SAMPLE FREQUENCY in HZ
-FSAMP = 500
+FSAMP = 250
 
 #SAMP  number of sample taken by the FFT
-SAMP = 512
+SAMP = 256
 
-#minimum threshold to modify the chart (0.0 = disable)
-minThreshold = 0.0
+
 
 UDP_PORT=6001
 ServerSocket = socket.socket(family=socket.AF_INET, type = socket.SOCK_DGRAM)
@@ -58,12 +57,13 @@ def GetFFT():
        nidx = numbers_th[0]
        if nidx >= (SAMP//2):
            continue
-       print("Tcount",Tcount," Freq:",freq," value:",numbers_th[nidx])
+       print("Tcount",Tcount," Freq:",freq," value:",numbers_th[0])
        lock.acquire()
        maxPeak= numbers_th[0]
-       numbers_t = (0.001/(SAMP /2)) * np.array(numbers_th) # from milli g to g
-       if numbers_t[maxPeak] > minThreshold :
-            Tcount+=1
+       numbers_t = 0.001 * np.array(numbers_th) # from milli g to g
+       #numbers_t = np.array(numbers_th) # milli g
+       #if numbers_t[maxPeak] > 0.8:
+       Tcount+=1
        lock.release()
    print("Thread close")
 
