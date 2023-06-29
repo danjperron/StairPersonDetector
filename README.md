@@ -75,7 +75,18 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
     target_sources(pico_lwip_mqtt INTERFACE<br>
             ${PICO_LWIP_PATH}/src/apps/mqtt/mqtt.c
             )</blockquote>  
+
+  *** About mpuPlot.py
+
+  The pico won't send udp data unless you set the IPV4 addres to send and the minimum threshold
+    Use mosquitto_pub
+  ex:
+    mosquitto_pub -h "192.168.0.20" -t "cmnd/escalier/udphostip" -m "192.168.0.25"
+    mosquitto_pub -h "192.168.0.20" -t "cmnd/escalier/udpthreshold" -m "20.0"
   
+N.B. The mpuPlot won"t show any graph until a packet it receives.
+     Also be sure that FSAMP and NSAMP(SAMP) are the same from the file mpu6050_i2c.h when you compile the code.
+
   
   
   
