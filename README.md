@@ -39,7 +39,7 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   N.B. add-on Enable/Disable some frequency from the FFT index on Max Peak calculation.
  
     <blockquote>/cmnd/escalier/delay -> delay to let the light ON.<br>
-    /cmnd/escalier/threshold     -> minimum FFT peak detection to trigger the light.<br>
+    /cmnd/escalier/threshold     -> minimum Absolute detection to trigger the light.<br>
     /cmnd/escalier/peakthreshold -> minimum FFT peak detection to trigger the light.<br>
     /cmnd/escalier/info.         -> request to output status.<br>
     /cmnd/escalier/enable.       ->   0= no light  1= trigger light if threshold is reached.<br>
@@ -53,7 +53,7 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
     /cmnd/escalier/clrmask       -> disable  FFT[x].</lockquote>
  
   ex: using mosquitto to set udp host IP<br>
-       mosquitto_pub -h "your borker IP" -t "cmnd/escalier/udphostip" -m "192.168.0.1".   or -m "" to disable udp.
+       mosquitto_pub -h "your broker IP" -t "cmnd/escalier/udphostip" -m "192.168.0.1".   or -m "" to disable udp.
   
        
 - How to compile<br>
