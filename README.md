@@ -39,8 +39,8 @@ Demonstration link to youtube.com <a href=https://youtu.be/534miBv5ut0>https://y
   N.B. add-on Enable/Disable some frequency from the FFT index on Max Peak calculation.
  
     <blockquote>/cmnd/escalier/delay -> delay to let the light ON.<br>
-    /cmnd/escalier/threshold     -> minimum Absolute detection to trigger the light.<br>
-    /cmnd/escalier/peakthreshold -> minimum FFT peak detection to trigger the light.<br>
+    /cmnd/escalier/threshold     -> minimum FFT detection to trigger the light.<br>
+    /cmnd/escalier/peakthreshold -> minimum Absolute peak detection to trigger the light.<br>
     /cmnd/escalier/info.         -> request to output status.<br>
     /cmnd/escalier/enable.       ->   0= no light  1= trigger light if threshold is reached.<br>
     /cmnd/escalier/calibrate     ->   calibrate accelerometer offset for 5 sec.<br>
