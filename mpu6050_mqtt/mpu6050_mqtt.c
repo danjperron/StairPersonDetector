@@ -41,17 +41,23 @@ char udpHostIP[256];
 
 // MQTT
 
-#define MQTT_HOST_IP "10.11.12.192"
+#define MQTT_USER "mqtt_user"
+#define MQTT_USER_PASSWORD "CF2026"
+
+#define MQTT_HOST_IP "192.168.8.10"
 #define MQTT_HOST_PORT 1883
-#define MQTT_CLIENT_NAME "escalier"
+#define MQTT_CLIENT_NAME "escalierPico"
+#define MQTT_CLIENT_GROUP_NAME "escalier"
+
+#define TOPIC_ESCALIER_BAS   "stat/escalierBas/POWER"
+
+// we only need the stat of one tasmota switch
+//#define TOPIC_ESCALIER_HAUT  "stat/escalierHaut/POWER" 
 
 
 #define PRINT_DEBUG
-#undef PRINT_DEBUG
+//#undef PRINT_DEBUG
 
-#define TOPIC_ESCALIER_BAS   "stat/escalierBas/POWER"
-// we only need the stat of one tasmota switch
-//#define TOPIC_ESCALIER_HAUT  "stat/escalierHaut/POWER" 
 
 #define TOPIC_STAT "stat/"MQTT_CLIENT_NAME
 #define TOPIC_CMND "cmnd/"MQTT_CLIENT_NAME
@@ -59,7 +65,8 @@ char udpHostIP[256];
 #define TOPIC_ESCALIER_STATUS        TOPIC_STAT"/info"
 #define TOPIC_ESCALIER_GOT_TRIGGER   TOPIC_STAT"/gotTrigger"
 #define TOPIC_CMND_ESCALIER          TOPIC_CMND"/#"
-#define TOPIC_ESCALIER_POWER         TOPIC_CMND"/POWER"
+
+#define TOPIC_ESCALIER_POWER         "cmnd/"MQTT_CLIENT_GROUP_NAME"/POWER"
 #define TOPIC_ESCALIER_THRESHOLD     TOPIC_CMND"/threshold"
 #define TOPIC_ESCALIER_UDPTHRESHOLD  TOPIC_CMND"/udpthreshold"
 #define TOPIC_ESCALIER_PEAKTHRESHOLD TOPIC_CMND"/peakthreshold"
@@ -153,8 +160,8 @@ MQTT_CLIENT_DATA_T *mqtt;
 struct mqtt_connect_client_info_t mqtt_client_info=
 {
   MQTT_CLIENT_NAME,
-  NULL, /* user */
-  NULL, /* pass */
+  MQTT_USER, /* user */
+  MQTT_USER_PASSWORD, /* pass */
   0,  /* keep alive */
   NULL, /* will_topic */
   NULL, /* will_msg */
@@ -168,7 +175,8 @@ struct mqtt_connect_client_info_t mqtt_client_info=
 void publish_mask(int value)
  {
     char dt[32];
-    char info[256];
+    char info[1024];
+    int loop,loop2;
 
   stampDate(dt);
   if(value == -1)
@@ -179,6 +187,17 @@ void publish_mask(int value)
     {
       sprintf(info,"%s All mask array is  set",dt);
     }
+  else if(value == -3)
+   {
+     for(loop=0;loop<(NSAMP/2);loop+=32)
+     {
+       sprintf(info,"%d:",loop);
+       for(loop2=0;loop2<32;loop2++)
+        strcat(info,mpuSettings.Mask[loop+loop2] ? "1 " : "0 ");
+       publish(mqtt->mqtt_client_inst,TOPIC_ESCALIER_STATUS_MASK,info,strlen(info));
+     }
+     return;
+   }
   else  if((value>NSAMP/2) || (value<1))
     {
           sprintf(info,"%s Invalid mask Idx %d",dt,value);
@@ -204,7 +223,7 @@ void publishStatus(void)
       char datestamp[32];
       char info[1024];
       sprintf(info,"%s Light:%s Delay:%d Enable:%s trigger Threshold  mpu:%.1f  udp:%.1f  peak:%.1f "
-                   "raw offset  x:%.1f y:%.1f z:%.1f Max.Thredhold Peak:%.1f FFT:%.1f Freq(%d):%.0fHz"
+                   "raw offset  x:%.1f y:%.1f z:%.1f Max.Threshold Peak:%.1f FFT:%.1f Freq(%d):%.0fHz"
                    " UDP_host_IP: '%s'",
                 stampDate(datestamp),
                 lightStatus ? "ON" : "OFF",
@@ -389,9 +408,14 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
    else
     if (strcasecmp(mqtt_client->topic, TOPIC_ESCALIER_GET_MASK)==0)
     {
-      _itemp = atoi(mqtt_client->data);
-      if(_itemp<0)
+      if(strcasecmp(mqtt_client->data,"ALL")==0)
+        _itemp=-3;
+      else
+       {
+        _itemp = atoi(mqtt_client->data);
+        if(_itemp<0)
         _itemp=0;
+       }
       publish_mask(_itemp);
     }
 }
@@ -415,6 +439,21 @@ LWIP_PLATFORM_DIAG(("MQTT client \"%s\" connection cb: status %d\n", mqtt_client
 #ifdef PRINT_DEBUG
     printf("MQTT client accepted\n");
 #endif
+     sleep_ms(500);
+    printf("subscribe ");
+    printf(TOPIC_CMND_ESCALIER);
+    printf("\n");
+
+    mqtt_sub_unsub(client,
+            TOPIC_CMND_ESCALIER, 0,
+            mqtt_request_cb, arg,
+            1);
+    
+    sleep_ms(500);
+    printf("subscribe ");
+    printf(TOPIC_ESCALIER_BAS);
+    printf("\n");
+
     mqtt_sub_unsub(client,
             TOPIC_ESCALIER_BAS, 0,
             mqtt_request_cb, arg,
@@ -424,10 +463,7 @@ LWIP_PLATFORM_DIAG(("MQTT client \"%s\" connection cb: status %d\n", mqtt_client
             mqtt_request_cb, arg,
             1);
 */
-    mqtt_sub_unsub(client,
-            TOPIC_CMND_ESCALIER, 0,
-            mqtt_request_cb, arg,
-            1);
+
   }
 }
 /* Called when publish is complete either with success or failure */
@@ -447,7 +483,7 @@ void publish(mqtt_client_t *client, char * topic, char *payload, int payload_siz
   err = mqtt_publish(client, topic, payload, payload_size, qos, retain, mqtt_pub_request_cb,NULL);
 #ifdef PRINT_DEBUG
   if(err != ERR_OK) {
-    printf("Publish err: %d\n", err);
+    printf("Publish err: %d topic:%s payload:%s\n", err,topic, payload);
   }
 #endif
 }
@@ -643,7 +679,7 @@ int main() {
     rtc_init();
     get_ntp_time();
 
-    sleep_ms(1000);
+    sleep_ms(2000);
     // set I2C pins
     // This example will use I2C0 on the default SDA and SCL pins (4, 5 on a Pico)
     i2c_init(i2c_default, 400 * 1000);
